@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -13,10 +14,42 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
+from .live_snapshot import load_live_session_snapshot
 from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _parse_snapshot_updated_at(raw: str | None) -> datetime | None:
+    """Parse snapshot updated_at timestamp safely."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _merge_runtime_status_and_updated_at(
+    spec: ChatSpec,
+    tracker_status: str,
+    snapshot_updated_at: str | None,
+) -> ChatSpec:
+    """Overlay runtime status/updated_at from a live snapshot onto a chat."""
+    effective_status = "running" if snapshot_updated_at else tracker_status
+    snapshot_dt = _parse_snapshot_updated_at(snapshot_updated_at)
+    effective_updated_at = spec.updated_at
+    if snapshot_dt is not None and (
+        effective_updated_at is None or snapshot_dt > effective_updated_at
+    ):
+        effective_updated_at = snapshot_dt
+    return spec.model_copy(
+        update={
+            "status": effective_status,
+            "updated_at": effective_updated_at,
+        },
+    )
 
 
 async def get_workspace(request: Request):
@@ -81,7 +114,18 @@ async def list_chats(
     result = []
     for spec in chats:
         status = await tracker.get_status(spec.id)
-        result.append(spec.model_copy(update={"status": status}))
+        live_snapshot = await load_live_session_snapshot(
+            workspace.workspace_dir,
+            spec.session_id,
+            spec.user_id,
+        )
+        result.append(
+            _merge_runtime_status_and_updated_at(
+                spec,
+                status,
+                live_snapshot.updated_at if live_snapshot else None,
+            ),
+        )
     return result
 
 
@@ -164,14 +208,26 @@ async def get_chat(
         chat_spec.user_id,
     )
     status = await workspace.task_tracker.get_status(chat_id)
+    live_snapshot = await load_live_session_snapshot(
+        workspace.workspace_dir,
+        chat_spec.session_id,
+        chat_spec.user_id,
+    )
+    if live_snapshot is not None:
+        status = "running"
     if not state:
-        return ChatHistory(messages=[], status=status)
+        return ChatHistory(
+            messages=live_snapshot.messages if live_snapshot else [],
+            status=status,
+        )
     memory_state = state.get("agent", {}).get("memory", {})
     memory = InMemoryMemory()
     memory.load_state_dict(memory_state, strict=False)
 
     memories = await memory.get_memory(prepend_summary=False)
     messages = agentscope_msg_to_message(memories)
+    if live_snapshot is not None:
+        messages = live_snapshot.messages
     return ChatHistory(messages=messages, status=status)
 
 

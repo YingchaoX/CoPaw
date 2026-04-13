@@ -74,6 +74,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
   /** ISO 8601 creation timestamp from backend. */
   createdAt?: string | null;
+  /** ISO 8601 last-update timestamp from backend. */
+  updatedAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
@@ -262,6 +264,7 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     meta: chat.meta || {},
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
+    updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
   }) as ExtendedSession;
 

@@ -22,6 +22,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   userId?: string;
   channel?: string;
   createdAt?: string | null;
+  updatedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
@@ -36,7 +37,7 @@ interface ChatSessionDrawerProps {
 }
 
 /** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
-const formatCreatedAt = (raw: string | null | undefined): string => {
+const formatTimestamp = (raw: string | null | undefined): string => {
   if (!raw) return "";
   const date = new Date(raw);
   if (isNaN(date.getTime())) return "";
@@ -74,7 +75,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Sessions sorted by pinned first, then by createdAt descending */
+  /** Sessions sorted by pinned first, then by latest activity descending */
   const sortedSessions = useMemo(() => {
     return [...sessions].sort((a, b) => {
       const extA = a as ExtendedChatSession;
@@ -84,9 +85,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (extA.pinned && !extB.pinned) return -1;
       if (!extA.pinned && extB.pinned) return 1;
 
-      // Then sort by createdAt descending
-      const aTime = extA.createdAt;
-      const bTime = extB.createdAt;
+      // Then sort by latest activity descending
+      const aTime = extA.updatedAt ?? extA.createdAt;
+      const bTime = extB.updatedAt ?? extB.createdAt;
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;
@@ -274,7 +275,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
               <ChatSessionItem
                 key={session.id}
                 name={session.name || "New Chat"}
-                time={formatCreatedAt(ext.createdAt ?? null)}
+                time={formatTimestamp(ext.updatedAt ?? ext.createdAt ?? null)}
                 channelKey={channelKey || undefined}
                 channelLabel={channelLabel}
                 chatStatus={ext.status}

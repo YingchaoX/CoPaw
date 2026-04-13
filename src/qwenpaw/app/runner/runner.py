@@ -26,8 +26,13 @@ from .command_dispatch import (
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
+from .live_snapshot import (
+    delete_live_session_snapshot,
+    merge_live_turn_messages,
+    save_live_session_snapshot,
+)
 from .session import SafeJSONSession
-from .utils import build_env_context
+from .utils import build_env_context, agentscope_msg_to_message
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import QwenPawAgent
 from ...exceptions import convert_model_exception
@@ -361,6 +366,7 @@ class AgentRunner(Runner):
         )
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
+        user_id = getattr(request, "user_id", "") or ""
 
         (
             approval_response,
@@ -538,10 +544,48 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
+            base_live_messages = []
+            live_turn_messages = []
+            try:
+                memory_messages = await agent.memory.get_memory(
+                    prepend_summary=False,
+                )
+                base_live_messages.extend(
+                    agentscope_msg_to_message(memory_messages),
+                )
+            except Exception as e:
+                logger.debug(
+                    "Failed to build live snapshot from memory for %s: %s",
+                    session_id,
+                    e,
+                )
+
+            base_live_messages.extend(agentscope_msg_to_message(msgs))
+            if base_live_messages:
+                await save_live_session_snapshot(
+                    self.workspace_dir,
+                    session_id,
+                    user_id,
+                    base_live_messages,
+                )
+
             async for msg, last in stream_printing_messages(
                 agents=[agent],
                 coroutine_task=agent(msgs),
             ):
+                runtime_messages = agentscope_msg_to_message(msg)
+                if runtime_messages:
+                    live_turn_messages = merge_live_turn_messages(
+                        live_turn_messages,
+                        runtime_messages,
+                        getattr(msg, "id", None),
+                    )
+                    await save_live_session_snapshot(
+                        self.workspace_dir,
+                        session_id,
+                        user_id,
+                        [*base_live_messages, *live_turn_messages],
+                    )
                 yield msg, last
 
         except asyncio.CancelledError as exc:
@@ -595,6 +639,12 @@ class AgentRunner(Runner):
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)
+
+            await delete_live_session_snapshot(
+                self.workspace_dir,
+                session_id,
+                user_id,
+            )
 
     async def _cleanup_denied_session_memory(
         self,
