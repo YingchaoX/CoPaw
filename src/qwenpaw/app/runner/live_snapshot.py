@@ -51,7 +51,7 @@ def merge_live_turn_messages(
 
     for message in merged:
         message_original_id = (getattr(message, "metadata", {}) or {}).get(
-            "original_id"
+            "original_id",
         )
         if message_original_id == original_id:
             if first_match_index is None:
