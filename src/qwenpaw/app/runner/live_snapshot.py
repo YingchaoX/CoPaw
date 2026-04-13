@@ -50,9 +50,9 @@ def merge_live_turn_messages(
     filtered: list[Message] = []
 
     for message in merged:
-        message_original_id = (
-            getattr(message, "metadata", {}) or {}
-        ).get("original_id")
+        message_original_id = (getattr(message, "metadata", {}) or {}).get(
+            "original_id"
+        )
         if message_original_id == original_id:
             if first_match_index is None:
                 first_match_index = len(filtered)
@@ -79,10 +79,14 @@ def get_live_session_snapshot_path(
     if not workspace_dir or not session_id:
         return None
 
-    runtime_dir = Path(workspace_dir).expanduser() / ".runtime" / "live_sessions"
+    runtime_dir = (
+        Path(workspace_dir).expanduser() / ".runtime" / "live_sessions"
+    )
     safe_sid = sanitize_filename(session_id)
     safe_uid = sanitize_filename(user_id) if user_id else ""
-    filename = f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
+    filename = (
+        f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
+    )
     return runtime_dir / filename
 
 
