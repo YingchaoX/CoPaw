@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${CODEX_POST_PUSH_SKIP:-0}" == "1" ]]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+remote_name="${1:-}"
+remote_url="${2:-}"
+script_path="$repo_root/scripts/codex_post_push_actions.sh"
+
+if [[ -z "$remote_name" || ! -x "$script_path" ]]; then
+  exit 0
+fi
+
+state_dir="$repo_root/.git/codex-post-push"
+mkdir -p "$state_dir"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ -z "${local_ref:-}" || -z "${local_sha:-}" || -z "${remote_ref:-}" ]]; then
+    continue
+  fi
+
+  if [[ "$remote_ref" != refs/heads/* ]]; then
+    continue
+  fi
+
+  if [[ "$local_sha" =~ ^0+$ ]]; then
+    continue
+  fi
+
+  branch="${remote_ref#refs/heads/}"
+  safe_branch="${branch//\//__}"
+  log_file="$state_dir/${safe_branch}.launcher.log"
+
+  nohup "$script_path" \
+    "$remote_name" \
+    "$remote_url" \
+    "$branch" \
+    "$local_sha" \
+    >>"$log_file" 2>&1 &
+done
